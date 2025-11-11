@@ -1,0 +1,508 @@
+Assignment - 1
+# ------------------------------------------------------------
+# Crop Disease Detection + Yield Prediction with User Input
+# ------------------------------------------------------------
+
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score, mean_squared_error
+from keras.models import Sequential
+from keras.layers import Conv2D, MaxPooling2D, Flatten, Dense
+
+# Step 1: Load and Prepare Dataset
+# ------------------------------------------------------------
+df = pd.read_csv('/content/RS-A1_yield.csv')
+df = df.dropna()
+
+# Feature and target selection
+X = df[['average_rain_fall_mm_per_year', 'pesticides_tonnes', 'avg_temp']]
+y = df['hg/ha_yield']
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# Step 2: Train Random Forest Model for Yield Prediction
+# ------------------------------------------------------------
+yield_model = RandomForestRegressor(n_estimators=100, random_state=42)
+yield_model.fit(X_train, y_train)
+
+# Evaluate model performance
+y_pred = yield_model.predict(X_test)
+r2 = r2_score(y_test, y_pred)
+mse = mean_squared_error(y_test, y_pred)
+print(f"\n📊 Random Forest Model Performance:")
+print(f"R² Score: {r2:.3f}")
+print(f"Mean Squared Error: {mse:.2f}")
+
+# Step 3: CNN Model (Placeholder)
+# ------------------------------------------------------------
+X_train_images = np.random.rand(100, 64, 64, 3)
+y_train_images = np.random.randint(2, size=100)
+
+cnn_model = Sequential([
+    Conv2D(32, (3, 3), input_shape=(64, 64, 3), activation='relu'),
+    MaxPooling2D(pool_size=(2, 2)),
+    Flatten(),
+    Dense(128, activation='relu'),
+    Dense(1, activation='sigmoid')
+])
+
+cnn_model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+cnn_model.fit(X_train_images, y_train_images, epochs=3, batch_size=10, verbose=0)
+print("\n🧠 CNN model (placeholder) trained successfully.")
+
+# Step 4: Recommendation System
+# ------------------------------------------------------------
+def recommend(disease_prediction, yield_prediction):
+    if disease_prediction >= 0.5:
+        return "⚠️ Disease detected! Recommended: Apply pesticide immediately."
+    elif yield_prediction < 30000:
+        return "🌾 Low yield predicted! Recommended: Improve irrigation and soil nutrients."
+    else:
+        return "✅ Crop is healthy and yield prediction is optimal."
+
+# Step 5: Take User Input
+# ------------------------------------------------------------
+print("\n🌦️ Enter the environmental conditions below:")
+
+rainfall = float(input("Average Rainfall (mm/year): "))
+pesticides = float(input("Pesticides used (tonnes): "))
+temperature = float(input("Average Temperature (°C): "))
+
+# Convert inputs into array for prediction
+test_env_data = np.array([[rainfall, pesticides, temperature]])
+yield_prediction = yield_model.predict(test_env_data)[0]
+
+# Step 6: Simulate CNN Disease Detection (Placeholder)
+# ------------------------------------------------------------
+test_image = np.random.rand(1, 64, 64, 3)
+disease_prediction = cnn_model.predict(test_image)[0][0]
+
+# Step 7: Generate and Display Recommendation
+# ------------------------------------------------------------
+recommendation = recommend(disease_prediction, yield_prediction)
+
+print("\n------------------ RESULTS ------------------")
+print(f"Disease Prediction: {disease_prediction:.4f} (0: Healthy, 1: Diseased)")
+print(f"Predicted Crop Yield: {yield_prediction:.2f} hg/ha")
+print(f"Recommendation: {recommendation}")
+print("---------------------------------------------")
+
+# Average Rainfall (mm/year): 1450
+# Pesticides used (tonnes): 125
+# Average Temperature (°C): 16
+
+
+Assignment - 2
+# ------------------------------------------------------------
+# Movie Recommendation System using RS-A2_A3_movie & RS-A2_A3_tag
+# ------------------------------------------------------------
+
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import linear_kernel
+
+# Step 1: Load Datasets
+# ------------------------------------------------------------
+movies_df = pd.read_csv('/content/RS-A2_A3_movie.csv')
+tags_df = pd.read_csv('/content/RS-A2_A3_tag.csv')
+
+# Display sample
+print("Movies Data:")
+print(movies_df.head())
+print("\nTags Data:")
+print(tags_df.head())
+
+# Step 2: Merge datasets on 'movieId'
+# ------------------------------------------------------------
+merged_df = pd.merge(movies_df, tags_df, on='movieId', how='left')
+
+# Combine genres and tags into one column for textual content
+merged_df['combined'] = merged_df['genres'].fillna('') + ' ' + merged_df['tag'].fillna('')
+
+# Drop duplicates (some movies appear multiple times due to different tags)
+merged_df = merged_df.groupby(['movieId', 'title'])['combined'].apply(lambda x: ' '.join(x)).reset_index()
+
+# Step 3: TF-IDF Vectorization
+# ------------------------------------------------------------
+tfidf = TfidfVectorizer(stop_words='english')
+tfidf_matrix = tfidf.fit_transform(merged_df['combined'])
+
+# Compute cosine similarity
+cosine_sim = linear_kernel(tfidf_matrix, tfidf_matrix)
+
+# Step 4: Build Recommendation Function
+# ------------------------------------------------------------
+indices = pd.Series(merged_df.index, index=merged_df['title']).drop_duplicates()
+
+def get_recommendations(title, cosine_sim=cosine_sim):
+    if title not in indices:
+        return f"Movie '{title}' not found in dataset."
+
+    idx = indices[title]
+    sim_scores = list(enumerate(cosine_sim[idx]))
+    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
+
+    # Top 5 similar movies (excluding itself)
+    sim_scores = sim_scores[1:6]
+    movie_indices = [i[0] for i in sim_scores]
+
+    return merged_df[['title']].iloc[movie_indices]
+
+# Step 5: Interactive Input
+# ------------------------------------------------------------
+print("\nEnter a movie title to get recommendations:")
+user_input = input("Movie Title: ")
+
+recommendations = get_recommendations(user_input)
+
+print("\n---------------- Recommendations ----------------")
+print(recommendations)
+print("-------------------------------------------------")
+
+
+Assignment - 3
+# -----------------------------------------------
+# HYBRID MOVIE RECOMMENDATION SYSTEM
+# Using Content-Based + Collaborative Filtering
+# -----------------------------------------------
+
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import linear_kernel, pairwise_distances
+from scipy.sparse import csr_matrix
+from sklearn.decomposition import TruncatedSVD
+
+# ---------------------------
+# Step 1: Load Dataset
+# ---------------------------
+movies = pd.read_csv("/content/RS-A2_A3_movie.csv")          # movieId, title, genres
+tags = pd.read_csv("/content/RS-A2_A3_tag.csv")              # userId, movieId, tag, timestamp
+ratings = pd.read_csv("/content/RS-A2_A3_Filtered_Ratings.csv")  # userId, movieId, rating, timestamp
+
+# Clean and merge tags into movies
+tags["tag"] = tags["tag"].astype(str)
+tags_grouped = tags.groupby("movieId")["tag"].apply(lambda x: " ".join(x)).reset_index()
+merged_df = pd.merge(movies, tags_grouped, on="movieId", how="left")
+merged_df["tag"] = merged_df["tag"].fillna("")
+
+# ---------------------------
+# Step 2: Content-Based Filtering
+# ---------------------------
+# Combine 'genres' and 'tag' to form content description
+merged_df["content"] = merged_df["genres"].fillna("") + " " + merged_df["tag"]
+
+# TF-IDF vectorization
+tfidf = TfidfVectorizer(stop_words="english")
+tfidf_matrix = tfidf.fit_transform(merged_df["content"])
+
+# Compute cosine similarity matrix
+cosine_sim = linear_kernel(tfidf_matrix, tfidf_matrix)
+
+# ---------------------------
+# Step 3: Collaborative Filtering (SVD)
+# ---------------------------
+# Create user-item matrix
+user_item_matrix = ratings.pivot(index="userId", columns="movieId", values="rating").fillna(0)
+user_item_sparse = csr_matrix(user_item_matrix.values)
+
+# Apply SVD for latent features
+svd = TruncatedSVD(n_components=10, random_state=42)
+latent_matrix = svd.fit_transform(user_item_sparse)
+
+# ---------------------------
+# Step 4: Define Recommendation Functions
+# ---------------------------
+def get_content_based_recommendations(title, cosine_sim=cosine_sim):
+    """Returns top 5 movies similar to the given title based on content (genres + tags)."""
+    if title not in merged_df["title"].values:
+        print("Movie not found in dataset.")
+        return []
+    idx = merged_df.index[merged_df["title"] == title][0]
+    sim_scores = list(enumerate(cosine_sim[idx]))
+    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
+    sim_scores = sim_scores[1:6]
+    movie_indices = [i[0] for i in sim_scores]
+    return merged_df["title"].iloc[movie_indices].tolist()
+
+def get_collaborative_recommendations(user_id):
+    """Returns movies liked by users similar to the given user."""
+    if user_id not in user_item_matrix.index:
+        print("User not found in dataset.")
+        return []
+    user_idx = list(user_item_matrix.index).index(user_id)
+    similarities = pairwise_distances(
+        latent_matrix[user_idx].reshape(1, -1), latent_matrix, metric="cosine"
+    )[0]
+    similar_users = similarities.argsort()[1:6]
+    recommended_movies = []
+    for idx in similar_users:
+        user = user_item_matrix.index[idx]
+        user_movies = ratings[ratings["userId"] == user]["movieId"].tolist()
+        recommended_movies.extend(user_movies)
+    recommended_titles = merged_df[merged_df["movieId"].isin(recommended_movies)]["title"].unique().tolist()
+    return recommended_titles[:5]
+
+def hybrid_recommendations(user_id, title):
+    """Combine content-based and collaborative recommendations."""
+    content_based = get_content_based_recommendations(title)
+    collaborative_based = get_collaborative_recommendations(user_id)
+    combined = list(set(content_based + collaborative_based))
+    return combined[:5]
+
+# ---------------------------
+# Step 5: Get User Input
+# ---------------------------
+print("Welcome to the Hybrid Movie Recommendation System!")
+user_id = int(input("Enter your User ID: "))
+movie_title = input("Enter a movie title you like (e.g., Toy Story (1995)): ")
+
+# ---------------------------
+# Step 6: Generate and Display Recommendations
+# ---------------------------
+recommendations = hybrid_recommendations(user_id, movie_title)
+
+if recommendations:
+    print("\n---------------- Recommended Movies ----------------")
+    for i, rec in enumerate(recommendations, 1):
+        print(f"{i}. {rec}")
+    print("---------------------------------------------------")
+else:
+    print("No recommendations found.")
+
+
+
+Assignment - 4
+# ------------------------------------------------------------
+# 🎗️ SEER Breast Cancer Prognosis Prediction System
+# ------------------------------------------------------------
+
+# Step 1: Importing necessary libraries
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+
+# Step 2: Load dataset
+df = pd.read_csv("/content/RS-A4_SEER Breast Cancer Dataset .csv")
+
+# Step 3: Clean and preprocess data
+# Drop unnamed or irrelevant columns
+df = df.drop(columns=[col for col in df.columns if 'Unnamed' in col], errors='ignore')
+
+# Encode target column (Alive = 1, Dead = 0)
+df['Status'] = df['Status'].map({'Alive': 1, 'Dead': 0})
+
+# Drop missing values
+df = df.dropna()
+
+# Separate features and target
+X = df.drop(columns=['Status'])
+y = df['Status']
+
+# Convert categorical variables to numeric using one-hot encoding
+X = pd.get_dummies(X, drop_first=True)
+
+# Step 4: Split data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# Step 5: Train the Random Forest model
+model = RandomForestClassifier(n_estimators=100, random_state=42)
+model.fit(X_train, y_train)
+
+# Step 6: Evaluate the model
+y_pred = model.predict(X_test)
+accuracy = accuracy_score(y_test, y_pred)
+print("🎯 Model Accuracy:", round(accuracy, 2))
+print("\n📊 Classification Report:\n", classification_report(y_test, y_pred))
+
+# Step 7: Visualize the Confusion Matrix
+cm = confusion_matrix(y_test, y_pred)
+plt.figure(figsize=(6, 4))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+            xticklabels=['Dead (0)', 'Alive (1)'],
+            yticklabels=['Dead (0)', 'Alive (1)'])
+plt.title("🧩 Confusion Matrix - Breast Cancer Prognosis")
+plt.xlabel("Predicted Label")
+plt.ylabel("True Label")
+plt.show()
+
+# Step 8: Recommendation function
+def prognosis_recommendation(features):
+    """
+    Function to provide prognosis recommendation based on model predictions.
+    :param features: Array of patient features (must match X columns)
+    :return: Recommendation string
+    """
+    prediction = model.predict([features])
+    if prediction[0] == 0:
+        return "⚠️ High risk of malignant cancer. Immediate consultation and further tests recommended."
+    else:
+        return "✅ Benign/Alive prognosis. Routine monitoring suggested, but follow up with a healthcare provider."
+
+# Step 9: Example prediction (using a test sample)
+example_patient = X_test.iloc[0].values
+recommendation = prognosis_recommendation(example_patient)
+
+print("\n------------------------------------------")
+print("🩺 Prognosis Recommendation for Example Patient:")
+print(recommendation)
+print("------------------------------------------")
+
+
+Assignment - 5
+# -------------------------------------------------------------
+# 🛍️ Advanced E-commerce Product Recommendation System using SVD
+# -------------------------------------------------------------
+
+# Step 1: Import Libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.decomposition import TruncatedSVD
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.preprocessing import MinMaxScaler
+import random
+import seaborn as sns
+
+# -------------------------------------------------------------
+# Step 2: Load and Prepare the Dataset
+# -------------------------------------------------------------
+df = pd.read_csv("RS-A5_amazon_products_sales_data_cleaned (1).csv")
+
+print(f"✅ Loaded dataset with shape: {df.shape}")
+print("Columns:", list(df.columns))
+
+# Handle missing values
+df = df.dropna(subset=["product_title", "product_rating"])
+df["product_rating"] = df["product_rating"].astype(float)
+
+# Create unique product IDs
+df["product_id"] = range(1, len(df) + 1)
+
+# -------------------------------------------------------------
+# Step 3: Simulate User-Item Interactions
+# -------------------------------------------------------------
+num_users = 50  # Simulate 50 users
+unique_products = df["product_id"].unique()
+user_ids = list(range(1, num_users + 1))
+
+interaction_data = []
+for user in user_ids:
+    sampled_products = np.random.choice(unique_products, size=40, replace=False)
+    for product in sampled_products:
+        base_rating = df.loc[df["product_id"] == product, "product_rating"].values[0]
+        rating = np.clip(np.random.normal(base_rating, 0.5), 1, 5)
+        interaction_data.append([user, product, round(rating, 1)])
+
+interactions = pd.DataFrame(interaction_data, columns=["user_id", "product_id", "rating"])
+print(f"✅ Simulated user-item interactions: {interactions.shape}")
+
+# -------------------------------------------------------------
+# Step 4: Create User-Item Rating Matrix
+# -------------------------------------------------------------
+rating_matrix = interactions.pivot(index="user_id", columns="product_id", values="rating").fillna(0)
+print(f"User-Item Matrix shape: {rating_matrix.shape}")
+
+# -------------------------------------------------------------
+# Step 5: Model Evaluation (RMSE vs Components)
+# -------------------------------------------------------------
+rmse_values = []
+components_range = [5, 10, 15, 20, 25]
+
+for n in components_range:
+    svd = TruncatedSVD(n_components=n, random_state=42)
+    latent_matrix = svd.fit_transform(rating_matrix)
+    reconstructed = np.dot(latent_matrix, svd.components_)
+    rmse = np.sqrt(mean_squared_error(rating_matrix.values.flatten(), reconstructed.flatten()))
+    rmse_values.append(rmse)
+
+plt.figure(figsize=(8, 5))
+plt.plot(components_range, rmse_values, marker='o', linestyle='--')
+plt.title("RMSE vs Number of Latent Features (Components)")
+plt.xlabel("Number of Components")
+plt.ylabel("RMSE")
+plt.grid(True)
+plt.show()
+
+# -------------------------------------------------------------
+# Step 6: Apply Optimal Matrix Factorization (SVD)
+# -------------------------------------------------------------
+best_components = components_range[np.argmin(rmse_values)]
+print(f"🎯 Optimal number of components selected: {best_components}")
+
+svd = TruncatedSVD(n_components=best_components, random_state=42)
+latent_matrix = svd.fit_transform(rating_matrix)
+reconstructed_matrix = np.dot(latent_matrix, svd.components_)
+
+# Evaluate final model
+rmse = np.sqrt(mean_squared_error(rating_matrix.values.flatten(), reconstructed_matrix.flatten()))
+mae = mean_absolute_error(rating_matrix.values.flatten(), reconstructed_matrix.flatten())
+
+print("\n📊 Final Model Evaluation:")
+print(f"   RMSE: {rmse:.4f}")
+print(f"   MAE : {mae:.4f}")
+
+# -------------------------------------------------------------
+# Step 7: Recommendation Function
+# -------------------------------------------------------------
+def recommend_products(user_id, num_recommendations=5):
+    """
+    Recommend top N products for a given user based on reconstructed matrix.
+    """
+    user_ratings = reconstructed_matrix[user_id - 1]
+    rated_products = rating_matrix.loc[user_id][rating_matrix.loc[user_id] > 0].index
+    
+    recommendations = [
+        (df.loc[df["product_id"] == pid, "product_title"].values[0], score)
+        for pid, score in enumerate(user_ratings, start=1)
+        if pid not in rated_products
+    ]
+    
+    recommendations = sorted(recommendations, key=lambda x: x[1], reverse=True)[:num_recommendations]
+    return recommendations
+
+# -------------------------------------------------------------
+# Step 8: Display Recommendations for a Sample User
+# -------------------------------------------------------------
+sample_user = random.choice(user_ids)
+print(f"\n🛒 Generating product recommendations for User ID: {sample_user}")
+
+recommendations = recommend_products(sample_user, num_recommendations=5)
+print("\n---------------- Recommended Products ----------------")
+for i, (title, score) in enumerate(recommendations, 1):
+    print(f"{i}. {title}  (Predicted Preference Score: {score:.2f})")
+print("-------------------------------------------------------")
+
+# -------------------------------------------------------------
+# Step 9: Visualization – Top 5 Recommendations
+# -------------------------------------------------------------
+titles = [rec[0][:40] + "..." for rec in recommendations]
+scores = [rec[1] for rec in recommendations]
+
+plt.figure(figsize=(8, 5))
+sns.barplot(x=scores, y=titles, palette="coolwarm")
+plt.title(f"Top 5 Recommended Products for User {sample_user}")
+plt.xlabel("Predicted Preference Score")
+plt.ylabel("Product Title")
+plt.show()
+
+# -------------------------------------------------------------
+# Step 10: Observations and Conclusions
+# -------------------------------------------------------------
+print("\n🧠 Observations and Conclusions:")
+print("- The system applies Matrix Factorization (SVD) to uncover hidden user-product relationships.")
+print("- RMSE vs Components analysis helps identify optimal latent dimensions for accurate predictions.")
+print("- Visualizations show personalized product suggestions for each user.")
+print("- RMSE and MAE indicate prediction accuracy (lower values = better performance).")
+print("- Can be enhanced with real-world behavior data such as clicks, purchases, or browsing patterns.")
+print("- Integration into an e-commerce platform can significantly improve personalization and sales.")
