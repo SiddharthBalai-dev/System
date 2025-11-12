@@ -1,0 +1,694 @@
+Assignment - 1 
+import numpy as np
+
+# ----- Input Universal Set -----
+X = list(map(int, input("Enter the elements of the universal set X (space-separated): ").split()))
+
+# ----- Fuzzy Set A -----
+print("\nEnter membership values for Fuzzy Set A:")
+A = {}
+for x in X:
+    val = float(input(f"μA({x}) = "))
+    A[x] = val
+
+# ----- Fuzzy Set B -----
+print("\nEnter membership values for Fuzzy Set B:")
+B = {}
+for x in X:
+    val = float(input(f"μB({x}) = "))
+    B[x] = val
+
+# ----- Fuzzy Set C -----
+print("\nEnter membership values for Fuzzy Set C:")
+C = {}
+for x in X:
+    val = float(input(f"μC({x}) = "))
+    C[x] = val
+
+# ----- Fuzzy Set Operations -----
+def union(A, B):
+    return {x: max(A[x], B[x]) for x in A}
+
+def intersection(A, B):
+    return {x: min(A[x], B[x]) for x in A}
+
+def complement(A):
+    return {x: 1 - A[x] for x in A}
+
+print("\nUnion (A ∪ B):", union(A, B))
+print("Intersection (A ∩ B):", intersection(A, B))
+print("Complement of A (A'):", complement(A))
+
+# ----- Cartesian Product (Fuzzy Relation) -----
+def cartesian(A, B):
+    return {(x, y): min(A[x], B[y]) for x in A for y in B}
+
+R1 = cartesian(A, B)  # Relation from A to B
+R2 = cartesian(B, C)  # Relation from B to C
+
+print("\nFuzzy Relation R1 (A x B):")
+for pair, val in R1.items():
+    print(f"{pair}: {val}")
+
+print("\nFuzzy Relation R2 (B x C):")
+for pair, val in R2.items():
+    print(f"{pair}: {val}")
+
+# ----- Max-Min Composition -----
+def max_min_composition(R1, R2, A_set, B_set, C_set):
+    result = {}
+    for x in A_set:
+        for z in C_set:
+            values = []
+            for y in B_set:
+                values.append(min(R1[(x, y)], R2[(y, z)]))
+            result[(x, z)] = max(values)
+    return result
+
+Comp = max_min_composition(R1, R2, X, X, X)
+print("\nMax-Min Composition (R1 ∘ R2):")
+for pair, val in Comp.items():
+    print(f"{pair}: {val}")
+
+
+Assignment - 3
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+
+# ---------- Triangular membership (vectorized) ----------
+def trimf(x, a, b, c):
+    """Vectorized triangular membership function"""
+    x = np.asarray(x)
+    result = np.zeros_like(x, dtype=float)
+
+    # Left slope
+    left_mask = (x > a) & (x < b)
+    result[left_mask] = (x[left_mask] - a) / (b - a)
+
+    # Peak
+    peak_mask = (x == b)
+    result[peak_mask] = 1.0
+
+    # Right slope
+    right_mask = (x > b) & (x < c)
+    result[right_mask] = (c - x[right_mask]) / (c - b)
+
+    return result
+
+
+# ---------- Configuration Parameters ----------
+print("=" * 50)
+print("FUZZY LOGIC ROBOTIC ARM CONTROLLER")
+print("=" * 50)
+
+target_angle = float(input("Enter target angle (degrees): "))
+cur_angle = float(input("Enter initial angle (degrees): "))
+dt = float(input("Enter time step (e.g., 0.05): "))
+gain = float(input("Enter control gain (e.g., 1.2): "))
+max_steps = int(input("Enter max steps (e.g., 1000): "))
+control_sat = float(input("Enter control saturation limit (e.g., 50.0): "))
+
+print("=" * 50)
+
+
+# ---------- Define fuzzy sets for ERROR ----------
+def err_large_neg(x):
+    return trimf(x, -90, -60, -30)
+
+def err_small_neg(x):
+    return trimf(x, -40, -20, 0)
+
+def err_zero(x):
+    return trimf(x, -5, 0, 5)
+
+def err_small_pos(x):
+    return trimf(x, 0, 20, 40)
+
+def err_large_pos(x):
+    return trimf(x, 30, 60, 90)
+
+
+# ---------- Define fuzzy sets for ERROR DERIVATIVE ----------
+def derr_neg(x):
+    return trimf(x, -50, -25, 0)
+
+def derr_zero(x):
+    return trimf(x, -10, 0, 10)
+
+def derr_pos(x):
+    return trimf(x, 0, 25, 50)
+
+
+# ---------- Control output universe ----------
+u_universe = np.linspace(-50, 50, 1001)
+
+
+# ---------- Control fuzzy sets ----------
+def u_large_neg(x):
+    return trimf(x, -50, -40, -25)
+
+def u_small_neg(x):
+    return trimf(x, -35, -20, -5)
+
+def u_zero(x):
+    return trimf(x, -8, 0, 8)
+
+def u_small_pos(x):
+    return trimf(x, 5, 20, 35)
+
+def u_large_pos(x):
+    return trimf(x, 25, 40, 50)
+
+
+# ---------- Rule evaluation (Mamdani) ----------
+def evaluate_rules(e_val, de_val):
+    """Evaluate fuzzy rules based on error and error derivative"""
+
+    # Fuzzify inputs
+    e_ln = err_large_neg(e_val)
+    e_sn = err_small_neg(e_val)
+    e_z = err_zero(e_val)
+    e_sp = err_small_pos(e_val)
+    e_lp = err_large_pos(e_val)
+
+    de_n = derr_neg(de_val)
+    de_z = derr_zero(de_val)
+    de_p = derr_pos(de_val)
+
+    # Rule base: if error is POSITIVE (target > current) -> increase angle
+    fired = []
+
+    # Large negative error (current > target, need to decrease)
+    fired.append((min(e_ln, de_n), u_large_neg))
+    fired.append((min(e_ln, de_z), u_large_neg))
+    fired.append((min(e_ln, de_p), u_small_neg))
+
+    # Small negative error
+    fired.append((min(e_sn, de_n), u_large_neg))
+    fired.append((min(e_sn, de_z), u_small_neg))
+    fired.append((min(e_sn, de_p), u_zero))
+
+    # Zero error (at target, maintain)
+    fired.append((min(e_z, de_n), u_small_neg))
+    fired.append((min(e_z, de_z), u_zero))
+    fired.append((min(e_z, de_p), u_small_pos))
+
+    # Small positive error (target > current, need to increase)
+    fired.append((min(e_sp, de_n), u_zero))
+    fired.append((min(e_sp, de_z), u_small_pos))
+    fired.append((min(e_sp, de_p), u_large_pos))
+
+    # Large positive error
+    fired.append((min(e_lp, de_n), u_small_pos))
+    fired.append((min(e_lp, de_z), u_large_pos))
+    fired.append((min(e_lp, de_p), u_large_pos))
+
+    return fired
+
+
+# ---------- Defuzzify (centroid) ----------
+def defuzz_centroid(combined_mf, u_univ):
+    """Compute centroid defuzzification"""
+    num = np.sum(combined_mf * u_univ)
+    den = np.sum(combined_mf)
+    if den < 1e-10:
+        return 0.0
+    return num / den
+
+
+# ---------- Combine fired rules ----------
+def aggregate(fired, u_univ):
+    """Aggregate all fired rules using maximum operator"""
+    agg = np.zeros_like(u_univ)
+    for strength, mf_func in fired:
+        if strength <= 0:
+            continue
+        vals = mf_func(u_univ)
+        vals = np.minimum(strength, vals)
+        agg = np.maximum(agg, vals)
+    return agg
+
+
+# ---------- Simulation ----------
+print(f"Starting simulation...")
+print(f"Target: {target_angle}°, Initial: {cur_angle}°")
+print(f"Parameters: dt={dt}, gain={gain}, sat={control_sat}")
+
+time_hist, angle_hist, control_hist = [], [], []
+prev_error = target_angle - cur_angle
+stable_steps = 0
+
+for step in range(max_steps):
+    e = target_angle - cur_angle
+    de = (e - prev_error) / dt
+
+    fired = evaluate_rules(e, de)
+    agg = aggregate(fired, u_universe)
+    u_out = defuzz_centroid(agg, u_universe)
+    u_out = np.clip(u_out, -control_sat, control_sat)
+
+    # Update angle with damping near target
+    if abs(e) < 10:
+        damping = -0.3 * de
+        cur_angle += gain * (u_out + damping) * dt
+    else:
+        cur_angle += gain * u_out * dt
+
+    prev_error = e
+    time_hist.append(step * dt)
+    angle_hist.append(cur_angle)
+    control_hist.append(u_out)
+
+    # Convergence check
+    if abs(e) < 1.0 and abs(de) < 1.0:
+        stable_steps += 1
+        if stable_steps > 20:
+            print(f"\n✅ Converged at step {step}, time = {step*dt:.2f}s")
+            print(f"Final angle = {cur_angle:.3f}° (error = {e:.3f}°)")
+            break
+    else:
+        stable_steps = 0
+else:
+    print(f"\n⚠️ Did not converge within max steps.")
+    print(f"Final angle = {cur_angle:.3f}° (error = {target_angle - cur_angle:.3f}°)")
+
+
+# ---------- Static Plots ----------
+plt.figure(figsize=(12, 4))
+
+plt.subplot(1, 3, 1)
+plt.plot(time_hist, angle_hist, color='b', linewidth=2, label='Actual Angle')
+plt.axhline(target_angle, linestyle='--', color='r', linewidth=2, label='Target')
+plt.xlabel('Time (s)', fontsize=11)
+plt.ylabel('Angle (deg)', fontsize=11)
+plt.title('Angle vs Time', fontsize=12, fontweight='bold')
+plt.legend()
+plt.grid(True, alpha=0.3)
+
+plt.subplot(1, 3, 2)
+plt.plot(time_hist, control_hist, color='g', linewidth=2, label='Control Output')
+plt.axhline(0, linestyle='-', color='k', linewidth=0.5, alpha=0.3)
+plt.xlabel('Time (s)', fontsize=11)
+plt.ylabel('Control Signal', fontsize=11)
+plt.title('Control vs Time', fontsize=12, fontweight='bold')
+plt.legend()
+plt.grid(True, alpha=0.3)
+
+plt.subplot(1, 3, 3)
+errors = [target_angle - a for a in angle_hist]
+plt.plot(time_hist, errors, color='orange', linewidth=2, label='Error')
+plt.axhline(0, linestyle='--', color='k', linewidth=1, alpha=0.5)
+plt.xlabel('Time (s)', fontsize=11)
+plt.ylabel('Error (deg)', fontsize=11)
+plt.title('Error vs Time', fontsize=12, fontweight='bold')
+plt.legend()
+plt.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+
+# ---------- Robotic Arm Animation ----------
+print("\nCreating animation of the robotic arm...")
+
+fig, ax = plt.subplots(figsize=(7, 7))
+ax.set_xlim(-1.3, 1.3)
+ax.set_ylim(-0.3, 1.6)
+ax.set_aspect('equal')
+ax.set_title('Fuzzy Logic Controlled Robotic Arm', fontsize=14, fontweight='bold')
+
+# Base
+ax.plot(0, 0, 'ko', markersize=12, label='Base', zorder=5)
+
+# Target position
+target_x = np.sin(np.radians(target_angle))
+target_y = np.cos(np.radians(target_angle))
+ax.plot([0, target_x], [0, target_y], 'r--', linewidth=3, alpha=0.5, label=f'Target ({target_angle}°)')
+ax.plot(target_x, target_y, 'r*', markersize=20, alpha=0.6, zorder=4)
+
+# Arm
+arm_line, = ax.plot([], [], 'b-', lw=8, label='Arm', zorder=3)
+arm_end, = ax.plot([], [], 'go', markersize=12, zorder=4)
+
+# Text displays
+text_angle = ax.text(-1.2, 1.45, '', fontsize=11, weight='bold')
+text_error = ax.text(-1.2, 1.35, '', fontsize=10)
+
+ax.legend(loc='upper right', fontsize=10)
+ax.grid(True, alpha=0.3)
+ax.set_xlabel('X Position', fontsize=11)
+ax.set_ylabel('Y Position', fontsize=11)
+
+
+def init():
+    arm_line.set_data([], [])
+    arm_end.set_data([], [])
+    text_angle.set_text('')
+    text_error.set_text('')
+    return arm_line, arm_end, text_angle, text_error
+
+
+def update(frame):
+    angle = angle_hist[frame]
+    x = np.sin(np.radians(angle))
+    y = np.cos(np.radians(angle))
+    arm_line.set_data([0, x], [0, y])
+    arm_end.set_data([x], [y])
+    error = target_angle - angle
+    text_angle.set_text(f"Angle: {angle:.2f}°")
+    text_error.set_text(f"Error: {error:.2f}°")
+    return arm_line, arm_end, text_angle, text_error
+
+
+# Use fewer frames for smoother animation
+frames = min(len(angle_hist), 500)
+frame_step = max(1, len(angle_hist) // frames)
+
+ani = FuncAnimation(
+    fig, update, frames=range(0, len(angle_hist), frame_step),
+    init_func=init, blit=True, interval=30, repeat=True
+)
+
+plt.show()
+print("\n✨ Simulation complete!")
+
+
+Assignment - 4
+import numpy as np
+import random
+import pandas as pd
+from sklearn.model_selection import cross_val_score, GridSearchCV, train_test_split
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import accuracy_score
+
+# -----------------------------------------------
+# Load dataset
+# -----------------------------------------------
+df = pd.read_csv("SCOA_A4.csv")
+
+# Assuming last column is the target
+X = df.iloc[:, :-1]
+y = df.iloc[:, -1]
+
+print("✅ Dataset loaded successfully")
+print("Shape:", df.shape)
+print("Columns:", df.columns.tolist())
+print("Target variable:", df.columns[-1])
+
+# -----------------------------------------------
+# User inputs
+# -----------------------------------------------
+POP_SIZE = int(input("Enter population size (e.g. 20): "))
+N_GENERATIONS = int(input("Enter number of generations (e.g. 10): "))
+MUTATION_RATE = float(input("Enter mutation rate (0.0–1.0, e.g. 0.2): "))
+SELECTION_RATE = float(input("Enter selection rate (0.1–0.5, e.g. 0.2): "))
+
+# -----------------------------------------------
+# GA Helper Functions
+# -----------------------------------------------
+def create_chromosome():
+    # Each chromosome = [max_depth, min_samples_split]
+    return [random.randint(1, 20), random.randint(2, 10)]
+
+def fitness(chromosome):
+    max_depth, min_samples_split = chromosome
+    model = DecisionTreeClassifier(max_depth=max_depth, min_samples_split=min_samples_split, random_state=42)
+    scores = cross_val_score(model, X, y, cv=5)
+    return scores.mean()
+
+def selection(population, fitnesses, rate):
+    num_selected = max(2, int(len(population) * rate))
+    idx = np.argsort(fitnesses)[-num_selected:]
+    return [population[i] for i in idx]
+
+def crossover(parent1, parent2):
+    point = random.randint(1, len(parent1)-1)
+    child1 = parent1[:point] + parent2[point:]
+    child2 = parent2[:point] + parent1[point:]
+    return child1, child2
+
+def mutate(chromosome):
+    if random.random() < MUTATION_RATE:
+        chromosome[0] = random.randint(1, 20)
+    if random.random() < MUTATION_RATE:
+        chromosome[1] = random.randint(2, 10)
+    return chromosome
+
+# -----------------------------------------------
+# Run GA
+# -----------------------------------------------
+population = [create_chromosome() for _ in range(POP_SIZE)]
+
+for gen in range(N_GENERATIONS):
+    fitnesses = [fitness(chromo) for chromo in population]
+    best_fitness = max(fitnesses)
+    print(f"Generation {gen+1}/{N_GENERATIONS} - Best Fitness: {best_fitness:.4f}")
+
+    parents = selection(population, fitnesses, SELECTION_RATE)
+
+    new_population = []
+    while len(new_population) < POP_SIZE:
+        p1, p2 = random.sample(parents, 2)
+        child1, child2 = crossover(p1, p2)
+        new_population.append(mutate(child1))
+        if len(new_population) < POP_SIZE:
+            new_population.append(mutate(child2))
+    population = new_population
+
+# -----------------------------------------------
+# Final GA Result
+# -----------------------------------------------
+fitnesses = [fitness(chromo) for chromo in population]
+best_idx = np.argmax(fitnesses)
+best_hyperparams = population[best_idx]
+print("\n🎯 Best Hyperparameters from GA:", best_hyperparams)
+print("📈 Best Cross-Validation Accuracy:", fitnesses[best_idx])
+
+# -----------------------------------------------
+# Compare with GridSearchCV
+# -----------------------------------------------
+param_grid = {
+    'max_depth': range(1, 21),
+    'min_samples_split': range(2, 11)
+}
+
+grid = GridSearchCV(DecisionTreeClassifier(random_state=42), param_grid, cv=5)
+grid.fit(X, y)
+
+print("\n🧩 Best Hyperparameters from GridSearchCV:", grid.best_params_)
+print("📊 Best GridSearchCV Accuracy:", grid.best_score_)
+
+# -----------------------------------------------
+# Evaluate performance improvement
+# -----------------------------------------------
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Model before optimization (default)
+model_default = DecisionTreeClassifier(random_state=42)
+model_default.fit(X_train, y_train)
+acc_default = accuracy_score(y_test, model_default.predict(X_test))
+
+# Model after GA optimization
+model_ga = DecisionTreeClassifier(max_depth=best_hyperparams[0], min_samples_split=best_hyperparams[1], random_state=42)
+model_ga.fit(X_train, y_train)
+acc_ga = accuracy_score(y_test, model_ga.predict(X_test))
+
+print("\n⚙️ Model Performance Comparison:")
+print(f"Default Decision Tree Accuracy: {acc_default:.4f}")
+print(f"GA Optimized Decision Tree Accuracy: {acc_ga:.4f}")
+print(f"Improvement: {acc_ga - acc_default:.4f}")
+
+
+Assignment - 5
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, confusion_matrix
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+
+# -----------------------------------------------------------
+# Step 1: Load Dataset
+# -----------------------------------------------------------
+print("=== Stock Market Trend Prediction using ANN ===")
+
+# Read the dataset (update file name if needed)
+df = pd.read_csv('/content/SCOA_A5 .csv')
+
+print("\n✅ Dataset loaded successfully!")
+print("Shape:", df.shape)
+print("Columns:", df.columns.tolist())
+
+# -----------------------------------------------------------
+# Step 2: Preprocessing
+# -----------------------------------------------------------
+# Select necessary columns
+
+# Load the dataset
+
+# Select necessary columns
+df = df[['date', 'open', 'high', 'low', 'close', 'volume', 'Name']]
+
+# Sort by date to maintain time order
+df = df.sort_values(by='date')
+
+print(df.head())
+
+# Create target variable: 1 if next day’s Close > today’s Close, else 0
+df['Target'] = np.where(df['close'].shift(-1) > df['close'], 1, 0)
+
+# Drop last row with NaN target
+df = df.dropna()
+
+# Select features
+features = df[['open', 'high', 'low', 'close', 'volume']]
+
+# Scale features for ANN
+scaler = MinMaxScaler()
+X = scaler.fit_transform(features)
+y = df['Target'].values
+
+# -----------------------------------------------------------
+# Step 3: Split Dataset
+# -----------------------------------------------------------
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, shuffle=False
+)
+
+# -----------------------------------------------------------
+# Step 4: Build ANN Model
+# -----------------------------------------------------------
+model = Sequential([
+    Dense(64, input_dim=5, activation='relu'),
+    Dense(32, activation='relu'),
+    Dense(1, activation='sigmoid')
+])
+
+model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+# -----------------------------------------------------------
+# Step 5: Train the Model
+# -----------------------------------------------------------
+EPOCHS = int(input("Enter number of epochs for training (e.g. 50): "))
+print("\nTraining the ANN model...")
+model.fit(X_train, y_train, epochs=EPOCHS, batch_size=32, verbose=1)
+
+# -----------------------------------------------------------
+# Step 6: Evaluate Model
+# -----------------------------------------------------------
+print("\nEvaluating model performance...")
+y_pred = (model.predict(X_test) > 0.5).astype("int32")
+accuracy = accuracy_score(y_test, y_pred)
+conf_matrix = confusion_matrix(y_test, y_pred)
+
+print(f"\n✅ Model Accuracy: {accuracy:.2f}")
+print("Confusion Matrix:")
+print(conf_matrix)
+
+# -----------------------------------------------------------
+# Step 7: Predict Trend for Latest Entry
+# -----------------------------------------------------------
+latest_data = X_test[-1].reshape(1, -1)
+pred = model.predict(latest_data)
+trend = "UP 📈" if pred > 0.5 else "DOWN 📉"
+
+print(f"\nPredicted next-day trend for {df['Name'].iloc[0]}: {trend}")
+print("\n✨ Stock Market Trend Prediction Complete!")
+
+
+Assignment - 7
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# ============================================
+# Step 1: Load Dataset
+# ============================================
+df = pd.read_csv("/content/SCOA_A7.csv")  # Replace with your CSV path
+print("Dataset Loaded Successfully!\n")
+print(df.head())
+
+# Encode Genre
+df['Genre'] = df['Genre'].map({'Male': 0, 'Female': 1})
+
+# Use Age and Spending Score
+data = df[['Age', 'Spending Score (1-100)']].values.astype(float)  # <-- force float
+
+# ============================================
+# Step 2: PSO Parameters
+# ============================================
+num_clusters = 2
+num_particles = 10
+num_iterations = 50
+
+w = 0.5
+c1 = 1.5
+c2 = 1.5
+
+# ============================================
+# Step 3: Define the Particle Class
+# ============================================
+class Particle:
+    def __init__(self, data, num_clusters):
+        self.data = data
+        self.num_clusters = num_clusters
+        # Randomly initialize cluster centroids as floats
+        self.position = data[np.random.choice(range(len(data)), num_clusters)].astype(float)
+        self.velocity = np.zeros_like(self.position, dtype=float)
+        self.best_position = np.copy(self.position)
+        self.best_score = self.evaluate()
+
+    def evaluate(self):
+        distances = np.linalg.norm(self.data[:, None] - self.position[None, :], axis=2)
+        closest = np.argmin(distances, axis=1)
+        score = sum(np.linalg.norm(self.data[i] - self.position[closest[i]]) ** 2 for i in range(len(self.data)))
+        return score
+
+    def update(self, global_best):
+        r1, r2 = np.random.rand(), np.random.rand()
+        cognitive = c1 * r1 * (self.best_position - self.position)
+        social = c2 * r2 * (global_best - self.position)
+        self.velocity = w * self.velocity + cognitive + social
+        self.position = self.position + self.velocity  # <-- works fine with float
+        score = self.evaluate()
+        if score < self.best_score:
+            self.best_score = score
+            self.best_position = np.copy(self.position)
+
+# ============================================
+# Step 4: Initialize Swarm
+# ============================================
+swarm = [Particle(data, num_clusters) for _ in range(num_particles)]
+global_best = min(swarm, key=lambda p: p.best_score).best_position
+
+# ============================================
+# Step 5: PSO Optimization
+# ============================================
+print("\nRunning PSO optimization...")
+for iteration in range(num_iterations):
+    for particle in swarm:
+        particle.update(global_best)
+    global_best = min(swarm, key=lambda p: p.best_score).best_position
+    if iteration % 10 == 0 or iteration == num_iterations - 1:
+        best_score = min(swarm, key=lambda p: p.best_score).best_score
+        print(f"Iteration {iteration + 1}/{num_iterations} | Best Score: {best_score:.2f}")
+
+# ============================================
+# Step 6: Visualization
+# ============================================
+print("\nOptimization complete! Visualizing results...")
+distances = np.linalg.norm(data[:, None] - global_best[None, :], axis=2)
+labels = np.argmin(distances, axis=1)
+
+plt.figure(figsize=(8, 6))
+plt.scatter(data[:, 0], data[:, 1], c=labels, cmap='viridis', s=80, label='Customers')
+plt.scatter(global_best[:, 0], global_best[:, 1], c='red', marker='x', s=200, label='Cluster Centers')
+plt.title("Customer Segmentation using PSO")
+plt.xlabel("Age")
+plt.ylabel("Spending Score (1-100)")
+plt.legend()
+plt.grid(True)
+plt.show()
+
